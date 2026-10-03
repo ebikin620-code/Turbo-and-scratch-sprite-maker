@@ -1,0 +1,1201 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>TurboWarp スプライト背景透過ツール</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            touch-action: none; /* Prevent default touch scrolling for custom canvas controls */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        
+        .bg-checker {
+            background-color: #ffffff;
+            background-image: linear-gradient(45deg, #e0e0e0 25%, transparent 25%), 
+                              linear-gradient(-45deg, #e0e0e0 25%, transparent 25%), 
+                              linear-gradient(45deg, transparent 75%, #e0e0e0 75%), 
+                              linear-gradient(-45deg, transparent 75%, #e0e0e0 75%);
+            background-size: 16px 16px;
+            background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+        }
+
+        .bg-dark-checker {
+            background-color: #1a1a1a;
+            background-image: linear-gradient(45deg, #2a2a2a 25%, transparent 25%), 
+                              linear-gradient(-45deg, #2a2a2a 25%, transparent 25%), 
+                              linear-gradient(45deg, transparent 75%, #2a2a2a 75%), 
+                              linear-gradient(-45deg, transparent 75%, #2a2a2a 75%);
+            background-size: 16px 16px;
+            background-position: 0 0, 0 8px, 8px -8px, -8px 0px;
+        }
+
+        .bg-white-solid {
+            background-color: #ffffff;
+        }
+
+        /* Tool button active state */
+        .tool-btn.active {
+            background-color: #4f46e5;
+            color: #ffffff;
+            border-color: #4f46e5;
+        }
+
+        /* Custom scrollbars */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 9999px;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 h-screen flex flex-col overflow-hidden font-sans">
+
+    <header class="bg-slate-800 border-b border-slate-700 px-4 py-2.5 flex items-center justify-between shrink-0 z-20">
+        <div class="flex items-center gap-2">
+            <div class="bg-gradient-to-tr from-amber-500 to-orange-400 p-2 rounded-xl text-white shadow-md">
+                <i class="fa-solid fa-wand-magic-sparkles text-lg"></i>
+            </div>
+            <div>
+                <h1 class="text-base font-bold leading-none text-white">Sprite Magic</h1>
+                <p class="text-xs text-amber-400 font-medium mt-0.5">TurboWarp / Scratch 向け透過ツール</p>
+            </div>
+        </div>
+
+        <div class="flex items-center gap-2">
+            <button id="undoBtn" disabled class="p-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 disabled:hover:bg-slate-700 text-white rounded-lg transition-all text-sm flex items-center gap-1">
+                <i class="fa-solid fa-rotate-left"></i>
+                <span class="hidden sm:inline">元に戻す</span>
+            </button>
+            <button id="downloadBtn" class="px-3 py-1.5 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white font-bold rounded-lg transition-all text-sm shadow-md flex items-center gap-1.5">
+                <i class="fa-solid fa-download"></i>
+                <span>保存</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN CONTAINER -->
+    <div class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+
+        <main class="flex-1 relative bg-slate-950 overflow-hidden flex items-center justify-center cursor-grab active:cursor-grabbing" id="viewport">
+            
+            <!-- Background checker preview layer -->
+            <div id="canvasBg" class="absolute inset-0 bg-checker transition-colors duration-200"></div>
+
+            <!-- AI Processing Overlay -->
+            <div id="aiLoader" class="absolute inset-0 z-40 bg-slate-950/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3 hidden">
+                <div class="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                <div id="aiLoaderText" class="text-sm font-bold text-indigo-300 animate-pulse">Gemini AI がスプライトを生成・解析中...</div>
+            </div>
+
+            <!-- Scratch Canvas Scale Guide Overlay -->
+            <div id="guideOverlay" class="absolute pointer-events-none border-2 border-dashed border-amber-400/60 rounded-sm hidden" style="width: 480px; height: 360px;">
+                <span class="absolute top-1 left-1.5 text-[10px] bg-amber-500/80 text-slate-900 font-bold px-1 rounded">480 x 360 (Scratch画面サイズ)</span>
+            </div>
+
+            <!-- Save Fallback Modal for Mobile Browsers -->
+            <div id="saveModal" class="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4 hidden">
+                <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 max-w-sm w-full flex flex-col items-center gap-4 text-center shadow-2xl">
+                    <div class="flex items-center justify-between w-full border-b border-slate-700 pb-2">
+                        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-download text-amber-400"></i>
+                            <span>画像を長押しして保存</span>
+                        </h3>
+                        <button id="closeSaveModal" class="text-slate-400 hover:text-white p-1">
+                            <i class="fa-solid fa-xmark text-lg"></i>
+                        </button>
+                    </div>
+                    <p class="text-xs text-slate-300">
+                        自動ダウンロードがブロックされた場合は、下の画像を長押し（または右クリック）して「画像を保存」を選択してください。
+                    </p>
+                    <div class="p-3 bg-checker rounded-xl border border-slate-600 max-h-60 overflow-auto flex items-center justify-center w-full">
+                        <img id="saveModalImg" src="" alt="透過スプライト" class="max-w-full max-h-52 object-contain">
+                    </div>
+                    <button id="saveModalCloseBtn" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs rounded-xl transition">
+                        閉じる
+                    </button>
+                </div>
+            </div>
+
+            <!-- Main Canvas -->
+            <canvas id="mainCanvas" class="relative shadow-2xl z-10 touch-none"></canvas>
+
+            <!-- Center Point Marker Overlay -->
+            <div id="centerMarker" class="absolute pointer-events-none z-20 text-amber-500 flex items-center justify-center transform -translate-x-1/2 -translate-y-1/2 hidden">
+                <i class="fa-solid fa-crosshairs text-2xl drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)]"></i>
+            </div>
+
+            <!-- Drag & Drop / Upload Empty State -->
+            <div id="uploadPrompt" class="absolute inset-0 z-30 flex flex-col items-center justify-center p-6 bg-slate-900/90 backdrop-blur-sm transition-opacity">
+                <div class="max-w-md w-full bg-slate-800 border-2 border-dashed border-slate-600 rounded-2xl p-8 flex flex-col items-center text-center shadow-xl">
+                    <div class="w-16 h-16 bg-amber-500/10 text-amber-400 rounded-full flex items-center justify-center text-3xl mb-4">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                    </div>
+                    <h2 class="text-xl font-bold mb-1">画像を読み込む</h2>
+                    <p class="text-xs text-slate-400 mb-6">PNG, JPG, WebP, SVG に対応<br>ドラッグ＆ドロップまたは貼り付けも可能です</p>
+                    
+                    <label class="w-full py-3 px-4 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl cursor-pointer transition-all shadow-lg hover:shadow-amber-500/20 active:scale-95 flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-folder-open"></i>
+                        <span>ファイルを選択</span>
+                        <input type="file" id="fileInput" accept="image/*" class="hidden">
+                    </label>
+
+                    <div class="mt-4 text-[11px] text-slate-400 flex items-center gap-2">
+                        <span class="bg-slate-700 px-2 py-0.5 rounded">Ctrl+V</span>
+                        <span>でクリップボードから貼り付け</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- View Canvas Controls (Floating) -->
+            <div class="absolute top-3 right-3 z-20 flex flex-col gap-1.5 bg-slate-800/80 backdrop-blur-md p-1.5 rounded-xl border border-slate-700 shadow-lg">
+                <button id="zoomInBtn" class="w-9 h-9 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition" title="拡大">
+                    <i class="fa-solid fa-magnifying-glass-plus"></i>
+                </button>
+                <button id="zoomOutBtn" class="w-9 h-9 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition" title="縮小">
+                    <i class="fa-solid fa-magnifying-glass-minus"></i>
+                </button>
+                <button id="resetViewBtn" class="w-9 h-9 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition" title="リセット">
+                    <i class="fa-solid fa-expand"></i>
+                </button>
+                <div class="h-px bg-slate-700 my-0.5"></div>
+                <button id="bgToggleBtn" class="w-9 h-9 flex items-center justify-center text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg transition" title="背景切替">
+                    <i class="fa-solid fa-border-all"></i>
+                </button>
+            </div>
+        </main>
+
+        <aside class="w-full md:w-80 bg-slate-800 border-t md:border-t-0 md:border-l border-slate-700 flex flex-col shrink-0 z-20 max-h-[45vh] md:max-h-full overflow-y-auto">
+            
+            <!-- Tool Selection Grid -->
+            <div class="p-3 border-b border-slate-700">
+                <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">ツール選択</p>
+                <div class="grid grid-cols-5 gap-1">
+                    <!-- Magic Tap -->
+                    <button data-tool="magic" class="tool-btn active flex flex-col items-center justify-center p-2 rounded-xl border border-slate-700 bg-slate-700/50 hover:bg-slate-700 transition text-slate-300">
+                        <i class="fa-solid fa-wand-magic-sparkles text-base mb-1"></i>
+                        <span class="text-[9px] font-medium">色タップ</span>
+                    </button>
+                    <!-- Eraser -->
+                    <button data-tool="eraser" class="tool-btn flex flex-col items-center justify-center p-2 rounded-xl border border-slate-700 bg-slate-700/50 hover:bg-slate-700 transition text-slate-300">
+                        <i class="fa-solid fa-eraser text-base mb-1"></i>
+                        <span class="text-[9px] font-medium">消しゴム</span>
+                    </button>
+                    <!-- Restore Brush -->
+                    <button data-tool="restore" class="tool-btn flex flex-col items-center justify-center p-2 rounded-xl border border-slate-700 bg-slate-700/50 hover:bg-slate-700 transition text-slate-300">
+                        <i class="fa-solid fa-rotate-left text-base mb-1"></i>
+                        <span class="text-[9px] font-medium">復元</span>
+                    </button>
+                    <!-- Center Picker -->
+                    <button data-tool="center" class="tool-btn flex flex-col items-center justify-center p-2 rounded-xl border border-slate-700 bg-slate-700/50 hover:bg-slate-700 transition text-slate-300">
+                        <i class="fa-solid fa-crosshairs text-base mb-1"></i>
+                        <span class="text-[9px] font-medium">中心点</span>
+                    </button>
+                    <!-- AI Assistant -->
+                    <button data-tool="ai" class="tool-btn flex flex-col items-center justify-center p-2 rounded-xl border border-indigo-500/50 bg-indigo-950/40 hover:bg-indigo-900/50 transition text-indigo-300">
+                        <i class="fa-solid fa-robot text-base mb-1"></i>
+                        <span class="text-[9px] font-semibold">AI 助手</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dynamic Tool Settings Panel -->
+            <div class="p-3 flex-1 flex flex-col gap-4">
+                
+                <!-- Magic Wand Options -->
+                <div id="magicOptions" class="space-y-3">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300 font-medium">色の許容度 (Tolerance)</span>
+                            <span id="toleranceVal" class="text-amber-400 font-bold">25</span>
+                        </div>
+                        <input type="range" id="toleranceInput" min="1" max="150" value="25" class="w-full accent-amber-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                    </div>
+
+                    <button id="autoBgRemoveBtn" class="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs rounded-xl transition shadow flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-bolt"></i>
+                        <span>自動背景一括透過 (外枠自動抽出)</span>
+                    </button>
+                </div>
+
+                <!-- AI Tools Panel -->
+                <div id="aiOptions" class="space-y-3 hidden">
+                    <div class="bg-indigo-950/40 border border-indigo-500/30 p-2.5 rounded-xl space-y-2">
+                        <span class="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                            <i class="fa-solid fa-wand-magic-sparkles"></i>
+                            Gemini AI スプライトスタジオ
+                        </span>
+
+                        <!-- Mode Switcher -->
+                        <div class="grid grid-cols-2 gap-1 bg-slate-900/60 p-1 rounded-lg text-[10px]">
+                            <button id="aiTabGenerate" class="py-1 rounded bg-indigo-600 font-bold text-white">新規生成/差分</button>
+                            <button id="aiTabAnalyze" class="py-1 rounded hover:bg-slate-700 text-slate-300">コード/アイディア</button>
+                        </div>
+
+                        <!-- Sub-panel 1: Generate / Edit Costume -->
+                        <div id="aiGenPanel" class="space-y-2 pt-1">
+                            <label class="block text-[11px] text-slate-300">
+                                生成・改変指示 (プロンプト)
+                            </label>
+                            <textarea id="aiPromptInput" rows="2" placeholder="例: 可愛いドット絵の三色団子、ジャンプしているポーズ" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2 text-xs text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 resize-none"></textarea>
+                            
+                            <div class="flex gap-2">
+                                <button id="aiGenerateBtn" class="flex-1 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-lg transition flex items-center justify-center gap-1">
+                                    <i class="fa-solid fa-image"></i>
+                                    <span>新規スプライト作成</span>
+                                </button>
+                                <button id="aiEditBtn" class="flex-1 py-1.5 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs rounded-lg transition flex items-center justify-center gap-1">
+                                    <i class="fa-solid fa-wand-magic"></i>
+                                    <span>コスチューム改変</span>
+                                </button>
+                            </div>
+                            
+                            <button id="aiIsolateBtn" class="w-full py-1.5 bg-slate-700 hover:bg-slate-600 text-amber-300 text-xs font-medium rounded-lg transition flex items-center justify-center gap-1">
+                                <i class="fa-solid fa-cut"></i>
+                                <span>AI 被写体抽出・背景綺麗化</span>
+                            </button>
+                        </div>
+
+                        <!-- Sub-panel 2: Analyze & Scratch Code -->
+                        <div id="aiAnalyzePanel" class="space-y-2 pt-1 hidden">
+                            <p class="text-[11px] text-slate-300">
+                                現在のスプライト画像を解析し、Scratch/TurboWarpでのプログラミングコード案やアイデアを出力します。
+                            </p>
+                            <button id="aiAnalyzeBtn" class="w-full py-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-slate-950 font-bold text-xs rounded-lg transition flex items-center justify-center gap-1 shadow">
+                                <i class="fa-solid fa-code"></i>
+                                <span>Scratch スクリプト案を生成</span>
+                            </button>
+                            <div id="aiCodeResult" class="max-h-36 overflow-y-auto bg-slate-900 p-2 rounded-lg border border-slate-700 text-[11px] text-slate-300 hidden font-mono leading-relaxed whitespace-pre-wrap"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Eraser / Restore Options -->
+                <div id="brushOptions" class="space-y-3 hidden">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300 font-medium">ブラシサイズ</span>
+                            <span id="brushSizeVal" class="text-amber-400 font-bold">20 px</span>
+                        </div>
+                        <input type="range" id="brushSizeInput" min="2" max="100" value="20" class="w-full accent-amber-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-slate-300 font-medium">ぼかし (フェザー)</span>
+                            <span id="brushFeatherVal" class="text-amber-400 font-bold">0 px</span>
+                        </div>
+                        <input type="range" id="brushFeatherInput" min="0" max="20" value="0" class="w-full accent-amber-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                    </div>
+                </div>
+
+                <!-- Center Options -->
+                <div id="centerOptions" class="space-y-2 hidden">
+                    <p class="text-xs text-slate-400 leading-relaxed">
+                        画像上の任意の位置をタップすると、Scratch/TurboWarpでの<b>回転軸（中心点）</b>を設定できます。
+                    </p>
+                    <button id="resetCenterBtn" class="w-full py-1.5 px-3 bg-slate-700 hover:bg-slate-600 text-xs text-slate-200 rounded-lg transition">
+                        画像の中央に戻す
+                    </button>
+                </div>
+
+                <div class="h-px bg-slate-700/60 my-1"></div>
+
+                <!-- Edge Cleaning & Smoothing -->
+                <div class="space-y-2">
+                    <p class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">フチの補正・仕上げ</p>
+                    <div class="flex gap-2">
+                        <button id="smoothEdgesBtn" class="flex-1 py-1.5 px-2 bg-slate-700 hover:bg-slate-600 text-xs rounded-lg transition flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-circle-half-stroke text-amber-400"></i>
+                            <span>フチ滑らか化</span>
+                        </button>
+                        <button id="trimPaddingBtn" class="flex-1 py-1.5 px-2 bg-slate-700 hover:bg-slate-600 text-xs rounded-lg transition flex items-center justify-center gap-1">
+                            <i class="fa-solid fa-crop-simple text-amber-400"></i>
+                            <span>余白トリミング</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Scratch Overlay Guide Toggle -->
+                <div class="mt-auto pt-2">
+                    <label class="flex items-center justify-between text-xs text-slate-300 cursor-pointer bg-slate-700/40 p-2.5 rounded-xl border border-slate-700">
+                        <span class="flex items-center gap-2">
+                            <i class="fa-solid fa-display text-amber-400"></i>
+                            <span>Scratch画面サイズの枠を表示</span>
+                        </span>
+                        <input type="checkbox" id="toggleGuide" class="accent-amber-500 w-4 h-4 rounded">
+                    </label>
+                </div>
+
+            </div>
+        </aside>
+
+    </div>
+
+    <script>
+        // State variables
+        let img = null;
+        let currentFileName = 'sprite'; // Store source image file name
+        let originalImageData = null; // Store pure original
+        let history = []; // Undo stack
+        const MAX_HISTORY = 12;
+
+        let currentTool = 'magic'; // magic, eraser, restore, center, ai
+        let zoomLevel = 1;
+        let panX = 0, panY = 0;
+        let isDragging = false;
+        let dragStartX = 0, dragStartY = 0;
+        let centerPoint = { x: 0, y: 0 }; // relative to canvas pixels
+
+        let isDrawing = false;
+
+        // Elements
+        const viewport = document.getElementById('viewport');
+        const canvas = document.getElementById('mainCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        const canvasBg = document.getElementById('canvasBg');
+        const uploadPrompt = document.getElementById('uploadPrompt');
+        const fileInput = document.getElementById('fileInput');
+        const centerMarker = document.getElementById('centerMarker');
+        const guideOverlay = document.getElementById('guideOverlay');
+        const aiLoader = document.getElementById('aiLoader');
+        const aiLoaderText = document.getElementById('aiLoaderText');
+
+        // Tool UI Switchers
+        const toolBtns = document.querySelectorAll('.tool-btn');
+        const magicOptions = document.getElementById('magicOptions');
+        const brushOptions = document.getElementById('brushOptions');
+        const centerOptions = document.getElementById('centerOptions');
+        const aiOptions = document.getElementById('aiOptions');
+
+        
+        // Tool selection
+        toolBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                toolBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentTool = btn.dataset.tool;
+
+                magicOptions.classList.add('hidden');
+                brushOptions.classList.add('hidden');
+                centerOptions.classList.add('hidden');
+                aiOptions.classList.add('hidden');
+
+                if (currentTool === 'magic') magicOptions.classList.remove('hidden');
+                if (currentTool === 'eraser' || currentTool === 'restore') brushOptions.classList.remove('hidden');
+                if (currentTool === 'center') centerOptions.classList.remove('hidden');
+                if (currentTool === 'ai') aiOptions.classList.remove('hidden');
+            });
+        });
+
+        // AI Panel Tab Switching
+        const aiTabGenerate = document.getElementById('aiTabGenerate');
+        const aiTabAnalyze = document.getElementById('aiTabAnalyze');
+        const aiGenPanel = document.getElementById('aiGenPanel');
+        const aiAnalyzePanel = document.getElementById('aiAnalyzePanel');
+
+        aiTabGenerate.addEventListener('click', () => {
+            aiTabGenerate.classList.add('bg-indigo-600', 'text-white', 'font-bold');
+            aiTabGenerate.classList.remove('hover:bg-slate-700', 'text-slate-300');
+            aiTabAnalyze.classList.remove('bg-indigo-600', 'text-white', 'font-bold');
+            aiTabAnalyze.classList.add('hover:bg-slate-700', 'text-slate-300');
+            aiGenPanel.classList.remove('hidden');
+            aiAnalyzePanel.classList.add('hidden');
+        });
+
+        aiTabAnalyze.addEventListener('click', () => {
+            aiTabAnalyze.classList.add('bg-indigo-600', 'text-white', 'font-bold');
+            aiTabAnalyze.classList.remove('hover:bg-slate-700', 'text-slate-300');
+            aiTabGenerate.classList.remove('bg-indigo-600', 'text-white', 'font-bold');
+            aiTabGenerate.classList.add('hover:bg-slate-700', 'text-slate-300');
+            aiGenPanel.classList.add('hidden');
+            aiAnalyzePanel.classList.remove('hidden');
+        });
+
+        // Gemini API Helper with Backoff
+        async function fetchGeminiAPI(apiUrl, payload, maxRetries = 3) {
+            let delay = 1000;
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (response.ok) {
+                        return await response.json();
+                    }
+                } catch (e) {
+                    console.debug(`API Attempt ${attempt + 1} failed:`, e);
+                }
+                await new Promise(res => setTimeout(res, delay));
+                delay *= 2;
+            }
+            throw new Error('Gemini API 呼び出しに失敗しました。');
+        }
+
+        // Get Base64 image from current canvas
+        function getCanvasBase64() {
+            if (!img) return null;
+            const dataUrl = canvas.toDataURL('image/png');
+            return dataUrl.split(',')[1];
+        }
+
+        // Load new Image from Data URL
+        function loadImageFromDataUrl(dataUrl) {
+            const tempImg = new Image();
+            tempImg.onload = () => {
+                currentFileName = 'ai_sprite_' + Math.floor(Date.now() / 1000);
+                setupCanvasWithImage(tempImg);
+            };
+            tempImg.src = dataUrl;
+        }
+
+        // AI Text-to-Sprite Generation (gemini-3.1-flash-image)
+        document.getElementById('aiGenerateBtn').addEventListener('click', async () => {
+            const prompt = document.getElementById('aiPromptInput').value.trim();
+            if (!prompt) {
+                alert('プロンプト（作れる画像の説明）を入力してください。');
+                return;
+            }
+
+            aiLoaderText.textContent = 'Gemini AI が新規スプライト画像を生成中...';
+            aiLoader.classList.remove('hidden');
+
+            try {
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{
+                        role: 'user',
+                        parts: [{ text: `Create a clean 2D game sprite asset for Scratch/TurboWarp: ${prompt}. Pure white or simple background, centered, full view.` }]
+                    }],
+                    generationConfig: {
+                        responseModalities: ['IMAGE'],
+                        imageConfig: { aspectRatio: "1:1" }
+                    }
+                };
+
+                const result = await fetchGeminiAPI(apiUrl, payload);
+                const part = result?.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+                if (part) {
+                    const imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                    loadImageFromDataUrl(imageUrl);
+                } else {
+                    alert('スプライトの生成に失敗しました。プロンプトを変えてお試しください。');
+                }
+            } catch (err) {
+                alert('エラーが発生しました: ' + err.message);
+            } finally {
+                aiLoader.classList.add('hidden');
+            }
+        });
+
+        // AI Image-to-Image Costume Editing (gemini-3.1-flash-image)
+        document.getElementById('aiEditBtn').addEventListener('click', async () => {
+            const prompt = document.getElementById('aiPromptInput').value.trim();
+            const base64Img = getCanvasBase64();
+            if (!base64Img) {
+                alert('先に画像を読み込むか生成してください。');
+                return;
+            }
+            if (!prompt) {
+                alert('変更指示（ポーズや色の変更など）を入力してください。');
+                return;
+            }
+
+            aiLoaderText.textContent = 'Gemini AI がコスチューム差分を生成中...';
+            aiLoader.classList.remove('hidden');
+
+            try {
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            { text: `Modify this game sprite character/object: ${prompt}. Keep the core design and style consistent.` },
+                            { inlineData: { mimeType: "image/png", data: base64Img } }
+                        ]
+                    }],
+                    generationConfig: {
+                        responseModalities: ['IMAGE']
+                    }
+                };
+
+                const result = await fetchGeminiAPI(apiUrl, payload);
+                const part = result?.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+                if (part) {
+                    const imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                    loadImageFromDataUrl(imageUrl);
+                } else {
+                    alert('コスチューム改変に失敗しました。');
+                }
+            } catch (err) {
+                alert('エラーが発生しました: ' + err.message);
+            } finally {
+                aiLoader.classList.add('hidden');
+            }
+        });
+
+        // AI Subject Isolation / Background Clean (gemini-3.1-flash-image)
+        document.getElementById('aiIsolateBtn').addEventListener('click', async () => {
+            const base64Img = getCanvasBase64();
+            if (!base64Img) {
+                alert('画像を読み込んでください。');
+                return;
+            }
+
+            aiLoaderText.textContent = 'Gemini AI が被写体を抽出中...';
+            aiLoader.classList.remove('hidden');
+
+            try {
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-image:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            { text: "Isolate the primary subject in this image cleanly onto a pure solid white background (#FFFFFF) with crisp, smooth edge outlines for a game sprite." },
+                            { inlineData: { mimeType: "image/png", data: base64Img } }
+                        ]
+                    }],
+                    generationConfig: {
+                        responseModalities: ['IMAGE']
+                    }
+                };
+
+                const result = await fetchGeminiAPI(apiUrl, payload);
+                const part = result?.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+                if (part) {
+                    const imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+                    
+                    // Load image then auto-remove solid background
+                    const tempImg = new Image();
+                    tempImg.onload = () => {
+                        setupCanvasWithImage(tempImg);
+                        // Trigger outer background flood removal automatically
+                        document.getElementById('autoBgRemoveBtn').click();
+                    };
+                    tempImg.src = imageUrl;
+                } else {
+                    alert('抽出に失敗しました。');
+                }
+            } catch (err) {
+                alert('エラーが発生しました: ' + err.message);
+            } finally {
+                aiLoader.classList.add('hidden');
+            }
+        });
+
+        // AI Scratch Code & Idea Suggestions (gemini-3-flash-preview)
+        document.getElementById('aiAnalyzeBtn').addEventListener('click', async () => {
+            const base64Img = getCanvasBase64();
+            if (!base64Img) {
+                alert('解析する画像を読み込んでください。');
+                return;
+            }
+
+            const aiCodeResult = document.getElementById('aiCodeResult');
+            aiCodeResult.classList.add('hidden');
+            aiLoaderText.textContent = 'Gemini AI がスプライトを解析中...';
+            aiLoader.classList.remove('hidden');
+
+            try {
+                const apiKey = "";
+                const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+                const payload = {
+                    contents: [{
+                        role: "user",
+                        parts: [
+                            { text: "このスプライト画像を見て、Scratch 3.0やTurboWarpで使える【動きのコードアイデア】や【おすすめスクリプト構成】を簡潔に提案してください。" },
+                            { inlineData: { mimeType: "image/png", data: base64Img } }
+                        ]
+                    }]
+                };
+
+                const result = await fetchGeminiAPI(apiUrl, payload);
+                const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                if (text) {
+                    aiCodeResult.textContent = text;
+                    aiCodeResult.classList.remove('hidden');
+                } else {
+                    alert('解析結果を取得できませんでした。');
+                }
+            } catch (err) {
+                alert('エラーが発生しました: ' + err.message);
+            } finally {
+                aiLoader.classList.add('hidden');
+            }
+        });
+
+        // Sliders state readouts
+        document.getElementById('toleranceInput').addEventListener('input', (e) => {
+            document.getElementById('toleranceVal').textContent = e.target.value;
+        });
+        document.getElementById('brushSizeInput').addEventListener('input', (e) => {
+            document.getElementById('brushSizeVal').textContent = `${e.target.value} px`;
+        });
+        document.getElementById('brushFeatherInput').addEventListener('input', (e) => {
+            document.getElementById('brushFeatherVal').textContent = `${e.target.value} px`;
+        });
+
+        // Background Preview Toggle
+        const bgStates = ['bg-checker', 'bg-dark-checker', 'bg-white-solid'];
+        let bgStateIdx = 0;
+        document.getElementById('bgToggleBtn').addEventListener('click', () => {
+            canvasBg.classList.remove(bgStates[bgStateIdx]);
+            bgStateIdx = (bgStateIdx + 1) % bgStates.length;
+            canvasBg.classList.add(bgStates[bgStateIdx]);
+        });
+
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files && e.target.files[0]) {
+                loadImageFromFile(e.target.files[0]);
+            }
+        });
+
+        // Clipboard paste handling
+        window.addEventListener('paste', (e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (let item of items) {
+                if (item.type.indexOf('image') !== -1) {
+                    const file = item.getAsFile();
+                    loadImageFromFile(file);
+                    break;
+                }
+            }
+        });
+
+        // Drag and drop handling
+        viewport.addEventListener('dragover', (e) => e.preventDefault());
+        viewport.addEventListener('drop', (e) => {
+            e.preventDefault();
+            if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                loadImageFromFile(e.dataTransfer.files[0]);
+            }
+        });
+
+        function loadImageFromFile(file) {
+            if (file && file.name) {
+                // Remove file extension for default download naming
+                currentFileName = file.name.replace(/\.[^/.]+$/, "");
+            }
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const image = new Image();
+                image.onload = () => {
+                    setupCanvasWithImage(image);
+                };
+                image.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function setupCanvasWithImage(loadedImg) {
+            img = loadedImg;
+            canvas.width = img.width;
+            canvas.height = img.height;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
+
+            // Store original pixels for restore brush
+            const tempCtx = document.createElement('canvas').getContext('2d');
+            tempCtx.canvas.width = canvas.width;
+            tempCtx.canvas.height = canvas.height;
+            tempCtx.drawImage(img, 0, 0);
+            originalImageData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
+
+            // Reset Center Point to image middle
+            centerPoint = { x: Math.round(canvas.width / 2), y: Math.round(canvas.height / 2) };
+
+            // Clear History
+            history = [];
+            saveState();
+
+            // Hide Upload UI
+            uploadPrompt.classList.add('opacity-0', 'pointer-events-none');
+            centerMarker.classList.remove('hidden');
+
+            // Reset Transformation & Fit Screen
+            resetView();
+        }
+
+        // Save State for Undo
+        function saveState() {
+            if (history.length >= MAX_HISTORY) history.shift();
+            history.push({
+                imageData: ctx.getImageData(0, 0, canvas.width, canvas.height),
+                centerPoint: { ...centerPoint }
+            });
+            document.getElementById('undoBtn').disabled = history.length <= 1;
+        }
+
+        document.getElementById('undoBtn').addEventListener('click', () => {
+            if (history.length > 1) {
+                history.pop(); // Remove current state
+                const lastState = history[history.length - 1];
+                ctx.putImageData(lastState.imageData, 0, 0);
+                centerPoint = { ...lastState.centerPoint };
+                updateTransform();
+                document.getElementById('undoBtn').disabled = history.length <= 1;
+            }
+        });
+
+
+        function updateTransform() {
+            canvas.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
+
+            // Position center marker overlay
+            if (img) {
+                const rect = canvas.getBoundingClientRect();
+                const viewportRect = viewport.getBoundingClientRect();
+
+                // Convert canvas pixel center coordinates to viewport relative pixels
+                const scaleX = rect.width / canvas.width;
+                const scaleY = rect.height / canvas.height;
+
+                const markerX = (rect.left - viewportRect.left) + centerPoint.x * scaleX;
+                const markerY = (rect.top - viewportRect.top) + centerPoint.y * scaleY;
+
+                centerMarker.style.left = `${markerX}px`;
+                centerMarker.style.top = `${markerY}px`;
+            }
+        }
+
+        function resetView() {
+            if (!img) return;
+            const padding = 40;
+            const availW = viewport.clientWidth - padding;
+            const availH = viewport.clientHeight - padding;
+
+            const scaleW = availW / canvas.width;
+            const scaleH = availH / canvas.height;
+
+            zoomLevel = Math.min(scaleW, scaleH, 2.5);
+            panX = 0;
+            panY = 0;
+            updateTransform();
+        }
+
+        document.getElementById('zoomInBtn').addEventListener('click', () => { zoomLevel *= 1.2; updateTransform(); });
+        document.getElementById('zoomOutBtn').addEventListener('click', () => { zoomLevel /= 1.2; updateTransform(); });
+        document.getElementById('resetViewBtn').addEventListener('click', resetView);
+
+
+        function getCanvasCoords(e) {
+            const rect = canvas.getBoundingClientRect();
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+            const x = Math.floor((clientX - rect.left) * (canvas.width / rect.width));
+            const y = Math.floor((clientY - rect.top) * (canvas.height / rect.height));
+
+            return { x, y };
+        }
+
+        // Pointer event handling on viewport/canvas
+        let touchDistance = 0;
+
+        viewport.addEventListener('pointerdown', (e) => {
+            if (!img) return;
+
+            // Middle click or spacebar held -> Pan
+            if (e.button === 1 || e.shiftKey) {
+                isDragging = true;
+                dragStartX = e.clientX - panX;
+                dragStartY = e.clientY - panY;
+                return;
+            }
+
+            // Click directly on canvas
+            if (e.target === canvas) {
+                const coords = getCanvasCoords(e);
+
+                if (currentTool === 'magic') {
+                    floodFillAlpha(coords.x, coords.y);
+                    saveState();
+                } else if (currentTool === 'center') {
+                    centerPoint = coords;
+                    updateTransform();
+                    saveState();
+                } else if (currentTool === 'eraser' || currentTool === 'restore') {
+                    isDrawing = true;
+                    applyBrush(coords.x, coords.y);
+                }
+            } else {
+                // Drag background to pan
+                isDragging = true;
+                dragStartX = e.clientX - panX;
+                dragStartY = e.clientY - panY;
+            }
+        });
+
+        window.addEventListener('pointermove', (e) => {
+            if (isDragging) {
+                panX = e.clientX - dragStartX;
+                panY = e.clientY - dragStartY;
+                updateTransform();
+            } else if (isDrawing) {
+                const coords = getCanvasCoords(e);
+                applyBrush(coords.x, coords.y);
+            }
+        });
+
+        window.addEventListener('pointerup', () => {
+            if (isDrawing) {
+                isDrawing = false;
+                saveState();
+            }
+            isDragging = false;
+        });
+
+        // Wheel Zoom
+        viewport.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+            zoomLevel *= zoomFactor;
+            updateTransform();
+        }, { passive: false });
+
+
+        // Color difference algorithm
+        function colorDiff(r1, g1, b1, a1, r2, g2, b2, a2) {
+            return Math.sqrt(
+                Math.pow(r1 - r2, 2) +
+                Math.pow(g1 - g2, 2) +
+                Math.pow(b1 - b2, 2) +
+                Math.pow(a1 - a2, 2) * 0.5
+            );
+        }
+
+        // Flood Fill / Tap Transparency
+        function floodFillAlpha(startX, startY) {
+            const tolerance = parseInt(document.getElementById('toleranceInput').value);
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            const w = canvas.width;
+            const h = canvas.height;
+
+            const startIdx = (startY * w + startX) * 4;
+            const targetR = data[startIdx];
+            const targetG = data[startIdx + 1];
+            const targetB = data[startIdx + 2];
+            const targetA = data[startIdx + 3];
+
+            if (targetA === 0) return; // Already transparent
+
+            const visited = new Uint8Array(w * h);
+            const queue = [startX, startY];
+
+            while (queue.length > 0) {
+                const cy = queue.pop();
+                const cx = queue.pop();
+                const idx = (cy * w + cx) * 4;
+
+                if (visited[cy * w + cx]) continue;
+                visited[cy * w + cx] = 1;
+
+                const diff = colorDiff(data[idx], data[idx+1], data[idx+2], data[idx+3], targetR, targetG, targetB, targetA);
+
+                if (diff <= tolerance) {
+                    data[idx + 3] = 0; // Make transparent
+
+                    // Check 4 neighbors
+                    if (cx > 0) queue.push(cx - 1, cy);
+                    if (cx < w - 1) queue.push(cx + 1, cy);
+                    if (cy > 0) queue.push(cx, cy - 1);
+                    if (cy < h - 1) queue.push(cx, cy + 1);
+                }
+            }
+
+            ctx.putImageData(imgData, 0, 0);
+        }
+
+        // Automatic Background Removal (Outer Edges Scan)
+        document.getElementById('autoBgRemoveBtn').addEventListener('click', () => {
+            if (!img) return;
+            const tolerance = parseInt(document.getElementById('toleranceInput').value);
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            const w = canvas.width;
+            const h = canvas.height;
+
+            // Sample corner pixels as background colors
+            const corners = [
+                0, // Top-left
+                (w - 1) * 4, // Top-right
+                ((h - 1) * w) * 4, // Bottom-left
+                ((h - 1) * w + (w - 1)) * 4 // Bottom-right
+            ];
+
+            const bgColors = corners.map(idx => [data[idx], data[idx+1], data[idx+2], data[idx+3]]);
+
+            const visited = new Uint8Array(w * h);
+            const queue = [];
+
+            // Add all outer boundary pixels to queue
+            for (let x = 0; x < w; x++) {
+                queue.push(x, 0);
+                queue.push(x, h - 1);
+            }
+            for (let y = 0; y < h; y++) {
+                queue.push(0, y);
+                queue.push(w - 1, y);
+            }
+
+            while (queue.length > 0) {
+                const cy = queue.pop();
+                const cx = queue.pop();
+                const pixIdx = cy * w + cx;
+
+                if (visited[pixIdx]) continue;
+                visited[pixIdx] = 1;
+
+                const idx = pixIdx * 4;
+
+                // Check against sample background colors
+                let matchesBg = false;
+                for (const bg of bgColors) {
+                    if (colorDiff(data[idx], data[idx+1], data[idx+2], data[idx+3], bg[0], bg[1], bg[2], bg[3]) <= tolerance) {
+                        matchesBg = true;
+                        break;
+                    }
+                }
+
+                if (matchesBg) {
+                    data[idx + 3] = 0; // Clear pixel
+
+                    if (cx > 0) queue.push(cx - 1, cy);
+                    if (cx < w - 1) queue.push(cx + 1, cy);
+                    if (cy > 0) queue.push(cx, cy - 1);
+                    if (cy < h - 1) queue.push(cx, cy + 1);
+                }
+            }
+
+            ctx.putImageData(imgData, 0, 0);
+            saveState();
+        });
+
+        // Brush & Restore Implementation
+        function applyBrush(cx, cy) {
+            const radius = parseInt(document.getElementById('brushSizeInput').value) / 2;
+            const feather = parseInt(document.getElementById('brushFeatherInput').value);
+
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            const origData = originalImageData.data;
+            const w = canvas.width;
+            const h = canvas.height;
+
+            const minX = Math.max(0, Math.floor(cx - radius - feather));
+            const maxX = Math.min(w - 1, Math.ceil(cx + radius + feather));
+            const minY = Math.max(0, Math.floor(cy - radius - feather));
+            const maxY = Math.min(h - 1, Math.ceil(cy + radius + feather));
+
+            for (let y = minY; y <= maxY; y++) {
+                for (let x = minX; x <= maxX; x++) {
+                    const dist = Math.sqrt((x - cx) ** 2 + (y - cy) ** 2);
+                    if (dist <= radius + feather) {
+                        const idx = (y * w + x) * 4;
+
+                        let factor = 1;
+                        if (dist > radius) {
+                            factor = 1 - (dist - radius) / feather;
+                        }
+
+                        if (currentTool === 'eraser') {
+                            data[idx + 3] = Math.round(data[idx + 3] * (1 - factor));
+                        } else if (currentTool === 'restore') {
+                            // Restore original pixel values
+                            data[idx] = origData[idx];
+                            data[idx + 1] = origData[idx + 1];
+                            data[idx + 2] = origData[idx + 2];
+                            data[idx + 3] = Math.max(data[idx + 3], Math.round(origData[idx + 3] * factor));
+                        }
+                    }
+                }
+            }
+
+            ctx.putImageData(imgData, 0, 0);
+        }
+
+
+        // Smooth edges (Alpha Matting / Anti-Aliasing Blur)
+        document.getElementById('smoothEdgesBtn').addEventListener('click', () => {
+            if (!img) return;
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            const w = canvas.width;
+            const h = canvas.height;
+            const copy = new Uint8ClampedArray(data);
+
+            for (let y = 1; y < h - 1; y++) {
+                for (let x = 1; x < w - 1; x++) {
+                    const idx = (y * w + x) * 4;
+                    const a = copy[idx + 3];
+
+                    // Find border pixels (semi-transparent or neighboring transparent)
+                    if (a > 0) {
+                        let transparentNeighbors = 0;
+                        let alphaSum = 0;
+
+                        for (let dy = -1; dy <= 1; dy++) {
+                            for (let dx = -1; dx <= 1; dx++) {
+                                const nIdx = ((y + dy) * w + (x + dx)) * 4;
+                                const nAlpha = copy[nIdx + 3];
+                                alphaSum += nAlpha;
+                                if (nAlpha === 0) transparentNeighbors++;
+                            }
+                        }
+
+                        if (transparentNeighbors > 0) {
+                            data[idx + 3] = Math.round(alphaSum / 9); // Smooth edge alpha
+                        }
+                    }
+                }
+            }
+
+            ctx.putImageData(imgData, 0, 0);
+            saveState();
+        });
+
+        // Trim Extra Transparent Padding
+        document.getElementById('trimPaddingBtn').addEventListener('click', () => {
+            if (!img) return;
+            const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const data = imgData.data;
+            const w = canvas.width;
+            const h = canvas.height;
+
+            let minX = w, minY = h, maxX = 0, maxY = 0;
+            let hasContent = false;
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const a = data[(y * w + x) * 4 + 3];
+                    if (a > 0) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                        hasContent = true;
+                    }
+                }
+            }
+
+            if (!hasContent) return;
+
+            const cropW = maxX - minX + 1;
+            const cropH = maxY - minY + 1;
+
+            const croppedData = ctx.getImageData(minX, minY, cropW, cropH);
+
+            // Shift Center Point accordingly
+            centerPoint.x = Math.max(0, centerPoint.x - minX);
+            centerPoint.y = Math.max(0, centerPoint.y - minY);
+
+            canvas.width = cropW;
+            canvas.height = cropH;
+            ctx.putImageData(croppedData, 0, 0);
+
+            resetView();
+            saveState();
+        });
+
+        // Reset Center Point Button
+        document.getElementById('resetCenterBtn').addEventListener('click', () => {
+            if (!img) return;
+            centerPoint = { x: Math.round(canvas.width / 2), y: Math.round(canvas.height / 2) };
+            updateTransform();
+            saveState();
+        });
+
+        // Scratch Overlay Frame Toggle
+        document.getElementById('toggleGuide').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                guideOverlay.classList.remove('hidden');
+            } else {
+                guideOverlay.classList.add('hidden');
+            }
+        });
+
+        // Modal controls
+        const saveModal = document.getElementById('saveModal');
+        const saveModalImg = document.getElementById('saveModalImg');
+        
+        function showSaveModal(dataUrl) {
+            saveModalImg.src = dataUrl;
+            saveModal.classList.remove('hidden');
+        }
+
+        document.getElementById('closeSaveModal').addEventListener('click', () => saveModal.classList.add('hidden'));
+        document.getElementById('saveModalCloseBtn').addEventListener('click', () => saveModal.classList.add('hidden'));
+
+        // Robust Download / Save Function (Mobile + PC Compatible)
+        document.getElementById('downloadBtn').addEventListener('click', () => {
+            if (!img) {
+                alert('保存する画像が読み込まれていません。');
+                return;
+            }
+
+            const downloadName = `${currentFileName}_transparent.png`;
+
+            // Convert canvas to PNG Blob
+            canvas.toBlob(async (blob) => {
+                if (!blob) {
+                    alert('画像の生成に失敗しました。');
+                    return;
+                }
+
+                // 1. Web Share API support (Ideal for iOS Safari & Mobile Chrome)
+                const file = new File([blob], downloadName, { type: 'image/png' });
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({
+                            files: [file],
+                            title: 'スプライト画像',
+                            text: 'TurboWarp / Scratch 用透過スプライト'
+                        });
+                        return;
+                    } catch (err) {
+                        if (err.name !== 'AbortError') {
+                            console.log('Fallback to standard download:', err);
+                        } else {
+                            return; // User canceled share sheet
+                        }
+                    }
+                }
+
+                // 2. Blob ObjectURL Anchor Download (PC and standard desktop browsers)
+                try {
+                    const blobUrl = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = blobUrl;
+                    link.download = downloadName;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+
+                    // Release URL memory after delay
+                    setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+                } catch (e) {
+                    // 3. Fallback: Long-press modal for restricted mobile WebViews
+                    showSaveModal(canvas.toDataURL('image/png'));
+                }
+            }, 'image/png');
+        });
+
+    </script>
+</body>
+</html>
